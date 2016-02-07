@@ -10,7 +10,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vektra/mockery/mockery"
+	"bytes"
+
+	"github.com/piotrkowalczuk/mockery/mockery"
 )
 
 const regexMetadataChars = "\\.+*?()|[]{}^$"
@@ -18,6 +20,7 @@ const regexMetadataChars = "\\.+*?()|[]{}^$"
 var fName = flag.String("name", "", "name or matching regular expression of interface to generate mock for")
 var fPrint = flag.Bool("print", false, "print the generated mock to stdout")
 var fOutput = flag.String("output", "./mocks", "directory to write mocks to")
+var fOutputFile = flag.String("output_file", "", "file to write mocks to")
 var fDir = flag.String("dir", ".", "directory to search for interfaces")
 var fRecursive = flag.Bool("recursive", false, "recurse search into sub-directories")
 var fAll = flag.Bool("all", false, "generates mocks for all found interfaces in all sub-directories")
@@ -25,6 +28,8 @@ var fIP = flag.Bool("inpkg", false, "generate a mock that goes inside the origin
 var fTO = flag.Bool("testonly", false, "generate a mock in a _test.go file")
 var fCase = flag.String("case", "camel", "name the mocked file using casing convention")
 var fNote = flag.String("note", "", "comment to insert into prologue of each generated file")
+var outputBuf *bytes.Buffer
+var count = 0
 
 func main() {
 	flag.Parse()
@@ -34,6 +39,9 @@ func main() {
 	var err error
 	var limitOne bool
 
+	if *fOutputFile != "" {
+		outputBuf = bytes.NewBuffer(nil)
+	}
 	if *fName != "" && *fAll {
 		fmt.Fprintln(os.Stderr, "Specify -name or -all, but not both")
 		os.Exit(1)
@@ -57,11 +65,23 @@ func main() {
 	}
 
 	generated := walkDir(*fDir, recursive, filter, limitOne)
+	switch {
+	case *fOutputFile != "":
+		f, err := os.Create(*fOutputFile)
+		if err != nil {
+			fmt.Printf("Unable to create output file for generated mocks: %s\n", err)
+			os.Exit(1)
+		}
 
-	if *fName != "" && !generated {
+		if err = mockery.WriteTo(f, outputBuf); err != nil {
+			fmt.Printf("Unable to write output to file: %s\n", err)
+			os.Exit(1)
+		}
+	case *fName != "" && !generated:
 		fmt.Printf("Unable to find %s in any go files under this path\n", *fName)
 		os.Exit(1)
 	}
+
 }
 
 func walkDir(dir string, recursive bool, filter *regexp.Regexp, limitOne bool) (generated bool) {
@@ -118,6 +138,8 @@ func genMock(iface *mockery.Interface) {
 		if r := recover(); r != nil {
 			fmt.Printf("Unable to generated mock for '%s': %s\n", iface.Name, r)
 			return
+		} else {
+			count++
 		}
 	}()
 
@@ -130,9 +152,12 @@ func genMock(iface *mockery.Interface) {
 		caseName = underscoreCaseName(caseName)
 	}
 
-	if *fPrint {
+	switch {
+	case *fPrint:
 		out = os.Stdout
-	} else {
+	case *fOutputFile != "":
+		out = outputBuf
+	default:
 		var path string
 
 		if *fIP {
@@ -154,17 +179,23 @@ func genMock(iface *mockery.Interface) {
 		out = f
 
 		fmt.Printf("Generating mock for: %s\n", name)
+
 	}
 
 	gen := mockery.NewGenerator(iface)
 
-	if *fIP {
-		gen.GenerateIPPrologue()
-	} else {
-		gen.GeneratePrologue(pkg)
-	}
+	// generate header only once for single file output.
+	if *fOutputFile == "" || count == 0 {
+		if *fIP {
+			gen.GenerateIPPrologue()
+		} else {
+			gen.GeneratePrologue(pkg)
+		}
 
-	gen.GeneratePrologueNote(*fNote)
+		gen.GeneratePrologueNote(*fNote)
+	} else if *fIP {
+		gen.SetInternalPackage(true)
+	}
 
 	err := gen.Generate()
 	if err != nil {
@@ -172,10 +203,14 @@ func genMock(iface *mockery.Interface) {
 		os.Exit(1)
 	}
 
-	err = gen.Write(out)
-	if err != nil {
-		fmt.Printf("Error writing %s: %s\n", name, err)
-		os.Exit(1)
+	if *fOutputFile != "" {
+		out.Write(gen.Bytes())
+	} else {
+		err = gen.Write(out)
+		if err != nil {
+			fmt.Printf("Error writing %s: %s\n", name, err)
+			os.Exit(1)
+		}
 	}
 }
 

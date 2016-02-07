@@ -49,6 +49,10 @@ func (g *Generator) GenerateIPPrologue() {
 	g.printf("\n")
 }
 
+func (g *Generator) SetInternalPackage(b bool) {
+	g.ip = b
+}
+
 func (g *Generator) mockName() string {
 	if g.ip {
 		if ast.IsExported(g.iface.Name) {
@@ -389,12 +393,20 @@ func (g *Generator) isNillable(typ ast.Expr) bool {
 }
 
 func (g *Generator) Write(w io.Writer) error {
+	return WriteTo(w, &g.buf)
+}
+
+func (g *Generator) Bytes() []byte {
+	return g.buf.Bytes()
+}
+
+func WriteTo(w io.Writer, b *bytes.Buffer) error {
 	opt := &imports.Options{Comments: true}
-	res, err := imports.Process("mock.go", g.buf.Bytes(), opt)
+	res, err := imports.Process("mock.go", b.Bytes(), opt)
 	if err != nil {
 		return err
 	}
 
-	w.Write(res)
-	return nil
+	_, err = w.Write(res)
+	return err
 }
