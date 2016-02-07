@@ -1,0 +1,8 @@
+language: go
+go:
+- tip
+install:
+- go get ./...
+script:
+- go build -o=exec cmd/mockery/mockery.go
+- go test ./...
