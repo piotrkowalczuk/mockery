@@ -21,6 +21,7 @@ var fName = flag.String("name", "", "name or matching regular expression of inte
 var fPrint = flag.Bool("print", false, "print the generated mock to stdout")
 var fOutput = flag.String("output", "./mocks", "directory to write mocks to")
 var fOutputFile = flag.String("output_file", "", "file to write mocks to")
+var fOutputPackageName = flag.String("output_pkg_name", "mocks", "output package name")
 var fDir = flag.String("dir", ".", "directory to search for interfaces")
 var fRecursive = flag.Bool("recursive", false, "recurse search into sub-directories")
 var fAll = flag.Bool("all", false, "generates mocks for all found interfaces in all sub-directories")
@@ -65,9 +66,23 @@ func main() {
 	}
 
 	generated := walkDir(*fDir, recursive, filter, limitOne)
+	if !generated {
+		fmt.Println("Nothing has been generated", *fName)
+		os.Exit(1)
+	}
 	switch {
 	case *fOutputFile != "":
-		f, err := os.Create(*fOutputFile)
+		var filename string
+		switch {
+		case *fIP:
+			filename = *fOutputFile
+		case *fOutput == "":
+			filename = *fOutputFile
+		default:
+			filename = *fOutput + "/" + *fOutputFile
+		}
+
+		f, err := os.Create(filename)
 		if err != nil {
 			fmt.Printf("Unable to create output file for generated mocks: %s\n", err)
 			os.Exit(1)
@@ -145,7 +160,7 @@ func genMock(iface *mockery.Interface) {
 
 	var out io.Writer
 
-	pkg := "mocks"
+	pkg := *fOutputPackageName
 	name := iface.Name
 	caseName := iface.Name
 	if *fCase == "underscore" {
